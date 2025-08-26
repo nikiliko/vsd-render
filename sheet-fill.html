@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>VsD • PDF Sheet Filler</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<style>
+  :root{ --ink:#1e1f21; --muted:#6a7178; --line:#d9dde2; --paper:#fff; --bg:#f6f7fb; --accent:#2b6cb0; }
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);font-family:"Playfair Display",Georgia,serif}
+  .app{max-width:1100px;margin:22px auto;padding:0 18px}
+  header{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:10px}
+  h1{margin:0;font-size:22px;color:#111}
+  .sub{color:var(--muted);font-variant:small-caps;letter-spacing:.4px;font-size:13px}
+  .panel{background:linear-gradient(180deg,#fff,#fafbff);border:1px solid var(--line);border-radius:12px;box-shadow:0 4px 16px rgba(10,15,20,.06);padding:12px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .row{display:flex;gap:8px;align-items:center;margin:6px 0}
+  label{min-width:140px}
+  input[type="text"], input[type="number"], select{
+    width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#fff;
+    box-shadow:inset 0 0 0 1px #fff; font-family:inherit;
+  }
+  .mini{border:1px solid var(--line);border-radius:10px;background:#eef3ff;color:#163a7a;font-weight:700;letter-spacing:.3px;padding:6px 10px;cursor:pointer}
+  .ok{background:#eaf6ef;color:#205b39}
+  .ghost{background:#fff}
+  .stack{display:flex;gap:8px;flex-wrap:wrap}
+  textarea{width:100%;min-height:110px;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <h1>VsD — Fill Character Sheet PDF</h1>
+      <div class="sub">Works with coordinates from coordtool</div>
+    </div>
+    <div class="sub">PDF-LIB in-browser • no server</div>
+  </header>
+
+  <div class="panel">
+    <div class="grid">
+      <div>
+        <div class="row">
+          <label>Template page</label>
+          <select id="templateSel">
+            <!-- You can point to /templates or root; change url below if needed -->
+          </select>
+        </div>
+        <div class="row">
+          <label>PDF file (optional)</label>
+          <input type="file" id="pdfFile" accept="application/pdf"/>
+        </div>
+        <div class="row">
+          <label>Coords JSON</label>
+          <input type="file" id="coordsFile" accept="application/json"/>
+        </div>
+        <div class="row">
+          <label>Data source</label>
+          <select id="dataSource">
+            <option value="local">LocalStorage (wizard)</option>
+            <option value="manual">Manual form</option>
+          </select>
+        </div>
+        <div class="stack" style="margin-top:8px">
+          <button class="mini ok" id="btnFill">Fill & Download</button>
+          <button class="mini ghost" id="btnPreview">Log data snapshot</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="sub" style="margin-bottom:6px">Manual form (only used if Data source = Manual)</div>
+        <div class="row"><label>Name</label><input id="m_name" type="text" placeholder="Hero Name"></div>
+        <div class="row"><label>Kin</label><input id="m_kin" type="text" placeholder="e.g., Silver Elf"></div>
+        <div class="row"><label>Culture</label><input id="m_culture" type="text" placeholder="e.g., Fey"></div>
+        <div class="row"><label>Vocation</label><input id="m_vocation" type="text" placeholder="e.g., Wizard"></div>
+        <div class="row"><label>BRN / SWI</label><input id="m_brn" type="number" value="0"><input id="m_swi" type="number" value="0"></div>
+        <div class="row"><label>FOR / WIT</label><input id="m_for" type="number" value="0"><input id="m_wit" type="number" value="0"></div>
+        <div class="row"><label>WSD / BEA</label><input id="m_wsd" type="number" value="0"><input id="m_bea" type="number" value="0"></div>
+        <div class="row"><label>HP / Max / MP</label><input id="m_hp" type="number" value="0"><input id="m_mhp" type="number" value="0"><input id="m_mp" type="number" value="0"></div>
+        <div class="row"><label>TSR / WSR / WL</label><input id="m_tsr" type="number" value="0"><input id="m_wsr" type="number" value="0"><input id="m_wl" type="number" value="0"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:12px">
+    <div class="sub" style="margin-bottom:6px">Loaded Coords JSON (read-only)</div>
+    <textarea id="coordsView" readonly placeholder="{ ... }"></textarea>
+  </div>
+</div>
+
+<script>
+const { PDFDocument, StandardFonts, rgb } = PDFLib;
+
+// If your PDF is at repo root, change url below to "vsd_char_sheet_letter.pdf"
+const TEMPLATES = [
+  { id:"p1", label:"Character Sheet — Page 1", url:"templates/vsd_char_sheet_letter.pdf", pageIndex:0 },
+  { id:"p2", label:"Character Sheet — Page 2", url:"templates/vsd_char_sheet_letter.pdf", pageIndex:1 },
+  { id:"p3", label:"Character Sheet — Page 3", url:"templates/vsd_char_sheet_letter.pdf", pageIndex:2 },
+];
+
+const templateSel = document.getElementById("templateSel");
+TEMPLATES.forEach(t=>{
+  const opt=document.createElement("option");
+  opt.value=t.id; opt.textContent=t.label;
+  templateSel.appendChild(opt);
+});
+templateSel.value="p1";
+
+// coords memory
+let COORDS = {};   // { key: {p,x,y,size,align,valign} }
+let PDF_BYTES = null;
+
+// load coords JSON
+const coordsFile = document.getElementById("coordsFile");
+coordsFile.addEventListener("change", async (e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  const txt = await f.text();
+  try{
+    COORDS = JSON.parse(txt);
+    document.getElementById("coordsView").value = JSON.stringify(COORDS, null, 2);
+  }catch(err){ alert("Invalid JSON"); }
+});
+
+// optional override PDF
+document.getElementById("pdfFile").addEventListener("change", async (e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  PDF_BYTES = new Uint8Array(await f.arrayBuffer());
+  alert("Custom PDF loaded ✓");
+});
+
+// Data source
+const dataSource = document.getElementById("dataSource");
+
+// Gather data from LocalStorage (wizard key)
+function gatherLocalData(){
+  const raw = localStorage.getItem("vsd_charsheet_active");
+  if(!raw) return {};
+  const s = JSON.parse(raw);
+  const stats = s.stats || {};
+  const kin  = s.kin?.name || "";
+  const culture = s.culture?.name || "";
+  const vocation = s.vocation?.name || "";
+  const km = (s.kin && s.kin.id) ? (s.kin.values || {}) : (s.kinValues || {}); // depending how you saved
+
+  return {
+    "id.name": s.name || "",
+    "id.kin": kin,
+    "id.culture": culture,
+    "id.vocation": vocation,
+
+    "stat.BRN": Number(stats.BRN||0),
+    "stat.SWI": Number(stats.SWI||0),
+    "stat.FOR": Number(stats.FOR||0),
+    "stat.WIT": Number(stats.WIT||0),
+    "stat.WSD": Number(stats.WSD||0),
+    "stat.BEA": Number(stats.BEA||0),
+
+    "meta.hp": Number(km.hp||0),
+    "meta.maxhp": Number(km.maxHP||0),
+    "meta.mp": Number(km.mp||0),
+    "meta.tsr": Number(km.tsr||0),
+    "meta.wsr": Number(km.wsr||0),
+    "meta.wl": Number(km.wl||0),
+  };
+}
+
+// Manual form
+function gatherManual(){
+  const v = id=>document.getElementById(id).value;
+  const n = id=>Number(document.getElementById(id).value||0);
+  return {
+    "id.name": v("m_name"),
+    "id.kin": v("m_kin"),
+    "id.culture": v("m_culture"),
+    "id.vocation": v("m_vocation"),
+    "stat.BRN": n("m_brn"),
+    "stat.SWI": n("m_swi"),
+    "stat.FOR": n("m_for"),
+    "stat.WIT": n("m_wit"),
+    "stat.WSD": n("m_wsd"),
+    "stat.BEA": n("m_bea"),
+    "meta.hp": n("m_hp"),
+    "meta.maxhp": n("m_mhp"),
+    "meta.mp": n("m_mp"),
+    "meta.tsr": n("m_tsr"),
+    "meta.wsr": n("m_wsr"),
+    "meta.wl": n("m_wl"),
+  };
+}
+
+document.getElementById("btnPreview").addEventListener("click", ()=>{
+  const data = (dataSource.value==="local") ? gatherLocalData() : gatherManual();
+  console.log("DATA SNAPSHOT:", data);
+  alert("Data snapshot logged to console.");
+});
+
+// Main fill
+document.getElementById("btnFill").addEventListener("click", async ()=>{
+  try{
+    if(!Object.keys(COORDS).length){ alert("Load your coords JSON first."); return; }
+
+    // load PDF (custom or default)
+    let pdfBytes = PDF_BYTES;
+    if(!pdfBytes){
+      const t = TEMPLATES[0]; // any entry; same file
+      const res = await fetch(t.url);
+      if(!res.ok) throw new Error("Cannot fetch PDF at "+t.url);
+      pdfBytes = new Uint8Array(await res.arrayBuffer());
+    }
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+    const data = (dataSource.value==="local") ? gatherLocalData() : gatherManual();
+
+    // Write every key for which we have coords AND data
+    for(const [key, cfg] of Object.entries(COORDS)){
+      const txtRaw = data[key];
+      if(txtRaw==null) continue;
+      const txt = String(txtRaw);
+
+      // page index from cfg.p
+      const pageId = cfg.p || "p1";
+      const pageInfo = TEMPLATES.find(t=>t.id===pageId) || TEMPLATES[0];
+      const page = pdfDoc.getPage(pageInfo.pageIndex);
+
+      const size = Number(cfg.size||12);
+      const width = page.getWidth(), height = page.getHeight();
+
+      // coordtool uses canvas coords (origin top-left). PDF uses bottom-left.
+      // Convert Y:
+      const x = Number(cfg.x||0);
+      const yTopLeft = Number(cfg.y||0);
+      const y = height - yTopLeft;
+
+      // text alignment
+      let xDraw = x;
+      const textWidth = font.widthOfTextAtSize(txt, size);
+      if(cfg.align==="center") xDraw = x - textWidth/2;
+      else if(cfg.align==="right") xDraw = x - textWidth;
+
+      let yDraw = y;
+      const ascent = font.ascentAtSize(size);
+      const descent = font.descentAtSize(size);
+      if(cfg.valign==="middle") yDraw = y - (ascent - Math.abs(descent))/2;
+      else if(cfg.valign==="top") yDraw = y - ascent;
+      // bottom = baseline default
+
+      page.drawText(txt, {
+        x: xDraw, y: yDraw,
+        size, font, color: rgb(0,0,0)
+      });
+    }
+
+    const out = await pdfDoc.save();
+    const blob = new Blob([out], {type:"application/pdf"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "vsd_char_sheet_filled.pdf";
+    a.click();
+
+  }catch(err){
+    console.error(err);
+    alert("Fill error: "+err.message);
+  }
+});
+</script>
+</body>
+</html>
