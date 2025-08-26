@@ -1,0 +1,210 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>PDF Coordinate Helper • VsD</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{--ink:#111;--line:#d9dde2;--muted:#6a7178;--accent:#2b6cb0;}
+    body{margin:0;background:#f6f7f9;color:#111;font:14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial}
+    .wrap{max-width:1100px;margin:22px auto;padding:0 16px}
+    h1{font-size:20px;margin:0 0 10px}
+    .row{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+    input[type="number"],input[type="text"],select{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit}
+    button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 10px;font-weight:700;cursor:pointer}
+    .board{position:relative;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;margin-top:10px}
+    canvas{display:block;width:100%;height:auto}
+    .dot{position:absolute;width:10px;height:10px;border-radius:50%;background:#2b6cb0;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25);transform:translate(-50%,-50%);pointer-events:none}
+    .side{flex:1 1 360px;min-width:360px}
+    .gridToggle{margin-left:6px}
+    .card{border:1px solid var(--line);border-radius:10px;background:#fff;padding:10px}
+    .muted{color:#6a7178}
+    textarea{width:100%;min-height:140px;border:1px solid var(--line);border-radius:8px;padding:8px;font:12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+    .pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:4px 8px;background:#eef2f6}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>PDF Coordinate Helper</h1>
+
+  <div class="row">
+    <div class="card">
+      <label>PDF points (US Letter): </label>
+      W <input id="w" type="number" value="612" style="width:80px">
+      H <input id="h" type="number" value="792" style="width:80px">
+      <label class="gridToggle"><input id="showGrid" type="checkbox"> show 10pt grid</label>
+      <span class="pill">origin:
+        <select id="origin">
+          <option value="top-left">top-left</option>
+          <option value="bottom-left">bottom-left (PDF)</option>
+        </select>
+      </span>
+    </div>
+    <div class="card">
+      <label>Field key:</label>
+      <select id="fieldKey" style="min-width:240px">
+        <optgroup label="Identity">
+          <option>identity.kin</option>
+          <option>identity.culture</option>
+          <option>identity.vocation</option>
+        </optgroup>
+        <optgroup label="Stats (examples)">
+          <option>stats.BRN.base</option>
+          <option>stats.SWI.base</option>
+        </optgroup>
+      </select>
+      <button id="copyLine">Copy line</button>
+    </div>
+    <div class="card">
+      <button id="loadPng">Load PNG…</button>
+      <span class="muted">Tip: drag & drop your <b>sheet_template.png</b> onto the canvas.</span>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:8px">
+    <div class="card">
+      <label>X</label> <input id="xInp" type="number" step="1" style="width:90px">
+      <label>Y</label> <input id="yInp" type="number" step="1" style="width:90px">
+      <label>Size</label> <input id="szInp" type="number" value="10" step="1" style="width:70px">
+      <label><input id="snap" type="checkbox" checked> snap 5pt</label>
+    </div>
+    <div class="card">
+      <button id="testDownload">Test → Download PDF</button>
+    </div>
+  </div>
+
+  <div id="board" class="board">
+    <canvas id="cvs" width="612" height="792"></canvas>
+    <div id="dot" class="dot" style="display:none"></div>
+  </div>
+
+  <div class="row" style="margin-top:10px">
+    <div class="side card">
+      <div class="muted" style="margin-bottom:6px">Live JSON (paste into app):</div>
+      <textarea id="jsonOut" readonly></textarea>
+    </div>
+    <div class="side card">
+      <div class="muted" style="margin-bottom:6px">Log:</div>
+      <textarea id="log" readonly></textarea>
+    </div>
+  </div>
+</div>
+
+<script>
+const cvs = document.getElementById('cvs');
+const ctx = cvs.getContext('2d');
+const dot = document.getElementById('dot');
+const wInp = document.getElementById('w');
+const hInp = document.getElementById('h');
+const originSel = document.getElementById('origin');
+const showGrid = document.getElementById('showGrid');
+const fieldKey = document.getElementById('fieldKey');
+const xInp = document.getElementById('xInp');
+const yInp = document.getElementById('yInp');
+const szInp = document.getElementById('szInp');
+const snapCb = document.getElementById('snap');
+const jsonOut = document.getElementById('jsonOut');
+const copyLine = document.getElementById('copyLine');
+const testBtn = document.getElementById('testDownload');
+const logEl = document.getElementById('log');
+
+let img = new Image();
+let coords = {};
+let curKey = fieldKey.value;
+let W = 612, H = 792;
+
+function log(m){ logEl.value += m + "\\n"; logEl.scrollTop = logEl.scrollHeight; }
+
+function draw(){
+  cvs.width = W; cvs.height = H;
+  ctx.clearRect(0,0,W,H);
+  if (img.src) ctx.drawImage(img, 0, 0, W, H);
+  if (showGrid.checked){
+    ctx.strokeStyle = '#e9edf2'; ctx.lineWidth = 1;
+    for (let x=0; x<=W; x+=10){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+    for (let y=0; y<=H; y+=10){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+  }
+  // draw all points faint
+  Object.entries(coords).forEach(([k,p])=>{
+    ctx.fillStyle = 'rgba(43,108,176,.18)';
+    ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill();
+  });
+}
+
+function updateDot(){
+  const p = coords[curKey];
+  if(!p){ dot.style.display='none'; return; }
+  dot.style.display='block';
+  dot.style.left = p.x + 'px';
+  dot.style.top  = p.y + 'px';
+}
+
+function setPoint(x,y){
+  if (snapCb.checked){ x = Math.round(x/5)*5; y = Math.round(y/5)*5; }
+  // flip if origin is bottom-left
+  if (originSel.value === 'bottom-left'){ y = H - y; }
+  coords[curKey] = { x, y, size: parseInt(szInp.value||10,10) };
+  // for UI display we want dot in canvas space (top-left)
+  const yCanvas = originSel.value==='bottom-left' ? H - y : y;
+  xInp.value = x; yInp.value = y; // stored coords (PDF-friendly)
+  draw(); dot.style.display='block';
+  dot.style.left = x + 'px';
+  dot.style.top  = yCanvas + 'px';
+  dumpJSON();
+}
+
+function dumpJSON(){
+  jsonOut.value = JSON.stringify(coords, null, 2);
+}
+
+cvs.addEventListener('click', (e)=>{
+  const r = cvs.getBoundingClientRect();
+  const x = (e.clientX - r.left) * (cvs.width / r.width);
+  const y = (e.clientY - r.top)  * (cvs.height / r.height);
+  setPoint(x,y);
+});
+
+document.getElementById('loadPng').onclick = async ()=>{
+  const inp = document.createElement('input'); inp.type='file'; inp.accept='image/png';
+  inp.onchange = () => {
+    const f = inp.files[0]; if(!f) return;
+    const fr = new FileReader();
+    fr.onload = () => { img = new Image(); img.onload=()=>{ draw(); }; img.src = fr.result; };
+    fr.readAsDataURL(f);
+  };
+  inp.click();
+};
+
+fieldKey.onchange = () => { curKey = fieldKey.value; const p=coords[curKey]; if(p){ xInp.value=p.x; yInp.value=p.y; szInp.value=p.size||10; } updateDot(); };
+xInp.oninput = () => { const p=coords[curKey]||(coords[curKey]={x:0,y:0,size:10}); p.x = parseInt(xInp.value||0,10); draw(); updateDot(); dumpJSON(); };
+yInp.oninput = () => { const p=coords[curKey]||(coords[curKey]={x:0,y:0,size:10}); p.y = parseInt(yInp.value||0,10); draw(); updateDot(); dumpJSON(); };
+szInp.oninput= () => { const p=coords[curKey]||(coords[curKey]={x:0,y:0,size:10}); p.size = parseInt(szInp.value||10,10); dumpJSON(); };
+originSel.onchange = draw; showGrid.onchange = draw;
+wInp.oninput = () => { W = parseInt(wInp.value||612,10); draw(); };
+hInp.oninput = () => { H = parseInt(hInp.value||792,10); draw(); };
+
+copyLine.onclick = ()=>{
+  const k = curKey, p = coords[k];
+  if(!p){ alert('Place a point first.'); return; }
+  const line = `"${k}": { "x": ${p.x}, "y": ${p.y}, "size": ${p.size||10} }`;
+  navigator.clipboard.writeText(line);
+  log('Copied: ' + line);
+};
+
+testBtn.onclick = async ()=>{
+  if(!Object.keys(coords).length){ alert('Place at least one point.'); return; }
+  const payload = {
+    sheet: { identity:{ kin:'Halfling', culture:'Woad', vocation:'Rogue' } },
+    coords
+  };
+  const r = await fetch('/api/sheet-fill',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'character.pdf'; a.click();
+  URL.revokeObjectURL(url);
+};
+
+draw();
+</script>
+</body>
+</html>
