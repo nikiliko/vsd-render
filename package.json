@@ -1,0 +1,9 @@
+{
+  "name": "vsd-renderer",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "@napi-rs/canvas": "^0.1.54"
+  }
+}

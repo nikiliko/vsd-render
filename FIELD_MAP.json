@@ -1,0 +1,10 @@
+{
+  "id.kin":      { "x": 120, "y": 82,  "size": 10, "align": "left" },
+  "id.culture":  { "x": 220, "y": 82,  "size": 10, "align": "left" },
+  "id.vocation": { "x": 342, "y": 82,  "size": 10, "align": "left" },
+
+  "stat.BRN.total": { "x":  90, "y": 154, "size": 12, "align": "center" },
+  "stat.SWI.total": { "x": 140, "y": 154, "size": 12, "align": "center" }
+
+  /* …add every field you measured… */
+}
