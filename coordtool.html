@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>VsD • Coord Tool (place text points)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#1e1f21; --muted:#6a7178; --head:#141517;
+    --line:#d9dde2; --accent:#2b6cb0; --paper:#fff; --bg:#f6f7fb;
+  }
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);font-family:"Playfair Display",Georgia,serif}
+  .app{max-width:1200px;margin:22px auto;padding:0 18px}
+  header{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:10px}
+  h1{margin:0;font-size:22px;color:#111}
+  .sub{color:var(--muted);font-variant:small-caps;letter-spacing:.4px;font-size:13px}
+  .wrap{display:grid;grid-template-columns:320px 1fr;gap:14px;align-items:start}
+  .panel{background:linear-gradient(180deg,#fff,#fafbff);border:1px solid var(--line);border-radius:12px;box-shadow:0 4px 16px rgba(10,15,20,.06);padding:12px}
+  .row{display:flex;gap:8px;align-items:center;margin:6px 0}
+  label{min-width:110px}
+  input[type="text"], input[type="number"], select{
+    width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#fff;
+    box-shadow:inset 0 0 0 1px #fff; font-family:inherit;
+  }
+  input[type="range"]{width:100%}
+  .mini{border:1px solid var(--line);border-radius:10px;background:#eef3ff;color:#163a7a;font-weight:700;letter-spacing:.3px;padding:6px 10px;cursor:pointer}
+  .ghost{background:#fff}
+  .ok{background:#eaf6ef;color:#205b39}
+  canvas{display:block;max-width:100%;border:1px solid var(--line);border-radius:12px;background:#fff}
+  .hint{font-size:12px;color:#667085}
+  .gridRow{display:grid;grid-template-columns:1fr 80px;gap:10px;align-items:center}
+  .stack{display:flex;gap:8px;flex-wrap:wrap}
+  .tag{font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);background:#f5f6fa}
+  .toast{position:fixed;right:16px;bottom:16px;background:#0f172a;color:#fff;padding:10px 12px;border-radius:10px;opacity:0;transform:translateY(8px);transition:.2s}
+  .toast.show{opacity:1;transform:translateY(0)}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <h1>VsD Coord Tool</h1>
+      <div class="sub">Place & save text coordinates for PDF fill</div>
+    </div>
+    <div class="sub">Tip: Hold <b>Shift</b> while dragging to snap</div>
+  </header>
+
+  <div class="wrap">
+    <div class="panel">
+      <div class="row">
+        <label>Background</label>
+        <input id="bgUrl" type="text" placeholder="templates/vsd_char_sheet_letter.png"/>
+      </div>
+      <div class="row">
+        <button class="mini" id="btnLoadBg">Load image</button>
+        <input type="file" id="bgFile" accept="image/*" class="ghost"/>
+      </div>
+
+      <div class="row">
+        <label>Page</label>
+        <select id="pageSel">
+          <option value="p1" selected>Page 1</option>
+          <option value="p2">Page 2</option>
+          <option value="p3">Page 3</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <label>Pick field</label>
+        <select id="fieldSel"></select>
+      </div>
+
+      <div class="row">
+        <label>X / Y</label>
+        <div style="flex:1"><input type="range" id="xRange" min="0" max="2000"></div>
+        <input style="width:76px" type="number" id="xNum" min="0" max="2000">
+      </div>
+      <div class="row">
+        <label></label>
+        <div style="flex:1"><input type="range" id="yRange" min="0" max="2000"></div>
+        <input style="width:76px" type="number" id="yNum" min="0" max="2000">
+      </div>
+
+      <div class="row">
+        <label>Font size</label>
+        <input type="number" id="fSize" min="6" max="32" value="12">
+      </div>
+      <div class="row">
+        <label>Align</label>
+        <select id="align">
+          <option>left</option><option>center</option><option>right</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>Valign</label>
+        <select id="valign">
+          <option>middle</option><option>top</option><option>bottom</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <label>Grid</label>
+        <div class="gridRow">
+          <input type="range" id="gridGap" min="8" max="64" value="16">
+          <input type="number" id="gridGapNum" min="4" max="128" value="16">
+        </div>
+      </div>
+      <div class="row">
+        <label>Snap</label>
+        <select id="snapMode">
+          <option value="off">off</option>
+          <option value="grid" selected>grid</option>
+          <option value="half">grid/2</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <label>Preview text</label>
+        <input id="sample" type="text" placeholder="Example preview…"/>
+      </div>
+
+      <div class="stack" style="margin-top:10px">
+        <button class="mini ok" id="btnSavePoint">Save point</button>
+        <button class="mini" id="btnUndo">Undo</button>
+        <button class="mini" id="btnRedo">Redo</button>
+        <button class="mini ghost" id="btnDownload">Download JSON</button>
+        <label class="mini ghost" style="cursor:pointer">
+          Upload JSON<input id="uploadJson" type="file" accept="application/json" style="display:none">
+        </label>
+      </div>
+
+      <div style="margin-top:10px">
+        <div class="sub">Saved fields</div>
+        <div id="savedTags" class="stack" style="margin-top:6px"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <canvas id="cv" width="1700" height="2200"></canvas>
+      <div class="hint" style="margin-top:6px">
+        Click/drag the blue dot; hold <b>Shift</b> to snap. Use sliders or number boxes for fine-tuning.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast">Saved ✓</div>
+
+<script>
+/* ---------- Config ---------- */
+// If you keep your image in /templates, leave this.
+// If OneCompiler (no folders), change to "vsd_char_sheet_letter.png".
+const BG_IMAGE_URL_DEFAULT = "templates/vsd_char_sheet_letter.png";
+
+const FIELD_LIST = [
+  {group:"Identity", keys:["id.name","id.kin","id.culture","id.vocation"]},
+  {group:"Stats", keys:["stat.BRN","stat.SWI","stat.FOR","stat.WIT","stat.WSD","stat.BEA"]},
+  {group:"HP/MP", keys:["meta.hp","meta.maxhp","meta.mp","meta.tsr","meta.wsr","meta.wl"]},
+  {group:"Notes", keys:["note.1","note.2","note.3"]}
+];
+
+// storage key
+const STORE_KEY = "vsd_coords_map_v1";
+
+/* ---------- State ---------- */
+let img = new Image();
+let imgLoaded = false;
+let coords = loadCoords();
+let undoStack = [];
+let redoStack = [];
+
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const bgUrl = document.getElementById("bgUrl");
+const btnLoadBg = document.getElementById("btnLoadBg");
+const bgFile = document.getElementById("bgFile");
+const pageSel = document.getElementById("pageSel");
+const fieldSel = document.getElementById("fieldSel");
+const xR = document.getElementById("xRange");
+const yR = document.getElementById("yRange");
+const xN = document.getElementById("xNum");
+const yN = document.getElementById("yNum");
+const fSize = document.getElementById("fSize");
+const align = document.getElementById("align");
+const valign = document.getElementById("valign");
+const gridGap = document.getElementById("gridGap");
+const gridGapNum = document.getElementById("gridGapNum");
+const snapMode = document.getElementById("snapMode");
+const sample = document.getElementById("sample");
+const btnSavePoint = document.getElementById("btnSavePoint");
+const btnUndo = document.getElementById("btnUndo");
+const btnRedo = document.getElementById("btnRedo");
+const btnDownload = document.getElementById("btnDownload");
+const uploadJson = document.getElementById("uploadJson");
+const savedTags = document.getElementById("savedTags");
+const toast = document.getElementById("toast");
+
+let dot = {x:200, y:200};
+let dragging = false;
+
+/* ---------- UI build ---------- */
+bgUrl.value = BG_IMAGE_URL_DEFAULT;
+
+(function buildFieldSelect(){
+  fieldSel.innerHTML = "";
+  FIELD_LIST.forEach(section=>{
+    const og = document.createElement("optgroup");
+    og.label = section.group;
+    section.keys.forEach(k=>{
+      const opt = document.createElement("option");
+      opt.value = k; opt.textContent = k;
+      og.appendChild(opt);
+    });
+    fieldSel.appendChild(og);
+  });
+  fieldSel.value = "id.kin";
+})();
+
+function paintSavedTags(){
+  savedTags.innerHTML = "";
+  Object.keys(coords).sort().forEach(k=>{
+    const sp = document.createElement("span");
+    sp.className="tag";
+    sp.textContent = k;
+    sp.title = `${coords[k].p || "p1"} @ ${coords[k].x},${coords[k].y}`;
+    sp.addEventListener("click", ()=> {
+      fieldSel.value = k;
+      loadFieldToUI();
+      draw();
+    });
+    savedTags.appendChild(sp);
+  });
+}
+paintSavedTags();
+
+/* ---------- Draw ---------- */
+function draw(){
+  // bg
+  ctx.clearRect(0,0,cv.width,cv.height);
+  if(imgLoaded){
+    ctx.drawImage(img, 0, 0, cv.width, cv.height);
+  }else{
+    ctx.fillStyle="#fff"; ctx.fillRect(0,0,cv.width,cv.height);
+  }
+
+  // grid
+  const step = parseInt(gridGap.value,10) || 16;
+  ctx.strokeStyle = "#e7e9f0";
+  ctx.lineWidth = 1;
+  for(let x=0; x<cv.width; x+=step){
+    ctx.beginPath(); ctx.moveTo(x+0.5,0); ctx.lineTo(x+0.5,cv.height); ctx.stroke();
+  }
+  for(let y=0; y<cv.height; y+=step){
+    ctx.beginPath(); ctx.moveTo(0,y+0.5); ctx.lineTo(cv.width,y+0.5); ctx.stroke();
+  }
+
+  // blue dot
+  ctx.fillStyle="#2563eb";
+  ctx.beginPath(); ctx.arc(dot.x, dot.y, 5, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle="#1e40af"; ctx.stroke();
+
+  // preview text
+  const txt = sample.value || fieldSel.value;
+  ctx.fillStyle="#111";
+  ctx.font = `${parseInt(fSize.value,10)||12}px Playfair Display`;
+  let textX = dot.x, textY = dot.y;
+  ctx.textAlign = align.value;
+  let base = "middle";
+  if(valign.value==="top") base="top"; else if(valign.value==="bottom") base="bottom";
+  ctx.textBaseline = base;
+  ctx.fillText(txt, textX, textY);
+}
+
+/* ---------- Helpers ---------- */
+function snap(v){
+  const mode = snapMode.value;
+  const g = parseInt(gridGap.value,10)||16;
+  if(mode==="off") return v;
+  const step = (mode==="half") ? g/2 : g;
+  return Math.round(v/step)*step;
+}
+function showToast(msg){
+  toast.textContent = msg || "Saved ✓";
+  toast.classList.add("show");
+  setTimeout(()=>toast.classList.remove("show"), 1100);
+}
+function pushUndo(){
+  undoStack.push(JSON.stringify(coords));
+  if(undoStack.length>100) undoStack.shift();
+  redoStack.length = 0;
+}
+function loadCoords(){
+  try{
+    const raw = localStorage.getItem(STORE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  }catch(e){ return {}; }
+}
+function saveCoords(){
+  localStorage.setItem(STORE_KEY, JSON.stringify(coords));
+  paintSavedTags();
+}
+
+/* ---------- Events ---------- */
+btnLoadBg.addEventListener("click", ()=>{
+  const u = (bgUrl.value||"").trim() || BG_IMAGE_URL_DEFAULT;
+  img.onload = ()=>{ imgLoaded=true; draw(); };
+  img.onerror = ()=>{ imgLoaded=false; draw(); alert("Could not load image: "+u); };
+  img.crossOrigin = "anonymous";
+  img.src = u;
+});
+bgFile.addEventListener("change",(e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  const url = URL.createObjectURL(f);
+  img.onload = ()=>{ imgLoaded=true; draw(); };
+  img.src = url;
+});
+
+function loadFieldToUI(){
+  const key = fieldSel.value;
+  const rec = coords[key] || {};
+  pageSel.value = rec.p || "p1";
+  const x = rec.x ?? 200, y = rec.y ?? 200;
+  xR.value = x; yR.value = y;
+  xN.value = x; yN.value = y;
+  fSize.value = rec.size || 12;
+  align.value = rec.align || "left";
+  valign.value = rec.valign || "middle";
+  dot.x = x; dot.y = y;
+}
+fieldSel.addEventListener("change", ()=>{ loadFieldToUI(); draw(); });
+
+[xR,yR,xN,yN,fSize,align,valign,gridGap,gridGapNum,snapMode,sample,pageSel]
+  .forEach(el=> el.addEventListener("input", ()=>{
+    if(el===gridGapNum) gridGap.value = gridGapNum.value;
+    if(el===gridGap) gridGapNum.value = gridGap.value;
+
+    if(el===xR || el===xN){ const v=Number(el.value||0); xR.value=v; xN.value=v; dot.x=v; }
+    if(el===yR || el===yN){ const v=Number(el.value||0); yR.value=v; yN.value=v; dot.y=v; }
+    draw();
+}));
+
+btnSavePoint.addEventListener("click", ()=>{
+  const key = fieldSel.value;
+  pushUndo();
+  coords[key] = {
+    p: pageSel.value,
+    x: Number(xN.value||0),
+    y: Number(yN.value||0),
+    size: Number(fSize.value||12),
+    align: align.value,
+    valign: valign.value
+  };
+  saveCoords();
+  showToast("Saved ✓");
+});
+
+btnUndo.addEventListener("click", ()=>{
+  if(!undoStack.length) return;
+  redoStack.push(JSON.stringify(coords));
+  coords = JSON.parse(undoStack.pop());
+  saveCoords();
+  loadFieldToUI();
+  draw();
+});
+btnRedo.addEventListener("click", ()=>{
+  if(!redoStack.length) return;
+  undoStack.push(JSON.stringify(coords));
+  coords = JSON.parse(redoStack.pop());
+  saveCoords();
+  loadFieldToUI();
+  draw();
+});
+
+btnDownload.addEventListener("click", ()=>{
+  const blob = new Blob([JSON.stringify(coords,null,2)], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "vsd_coords.json";
+  a.click();
+});
+
+uploadJson.addEventListener("change", (e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  f.text().then(txt=>{
+    try{
+      pushUndo();
+      coords = JSON.parse(txt);
+      saveCoords();
+      loadFieldToUI();
+      draw();
+      showToast("Loaded JSON ✓");
+    }catch(err){ alert("Invalid JSON"); }
+  });
+});
+
+/* Canvas mouse drag */
+cv.addEventListener("mousedown",(e)=>{
+  const rect = cv.getBoundingClientRect();
+  const x = (e.clientX-rect.left)*cv.width/rect.width;
+  const y = (e.clientY-rect.top)*cv.height/rect.height;
+  dot.x = x; dot.y = y;
+  dragging = true;
+  draw();
+});
+window.addEventListener("mousemove",(e)=>{
+  if(!dragging) return;
+  const rect = cv.getBoundingClientRect();
+  let x = (e.clientX-rect.left)*cv.width/rect.width;
+  let y = (e.clientY-rect.top)*cv.height/rect.height;
+  if(e.shiftKey){
+    x = snap(x); y = snap(y);
+  }
+  dot.x = x; dot.y = y;
+  xR.value = xN.value = Math.round(x);
+  yR.value = yN.value = Math.round(y);
+  draw();
+});
+window.addEventListener("mouseup",()=> dragging=false);
+
+/* Init */
+document.getElementById("btnLoadBg").click();
+loadFieldToUI();
+draw();
+</script>
+</body>
+</html>
